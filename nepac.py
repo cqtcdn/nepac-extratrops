@@ -16,7 +16,7 @@ def floodfill(a, x, y, min_pres, lows, fillx, filly, origx, origy, traversed, in
     if (origx, origy) in invalid:
         #print "closing all recursive instances, already found to be invalid"
         return 0
-    if calc_dist(lons[x], lats[y], lons[origx], lats[origy]) > 2500:
+    if calc_dist(lons[x], lats[y], lons[origx], lats[origy]) > 700:
         #is 2500 km too close?
         print("too far from center, assume low not deep enough")
         invalid.append((origx, origy))
@@ -165,7 +165,7 @@ preslevs = np.arange(900, 1060, 4)
 parallels = np.arange(0, 90, 10)
 meridians = np.arange(-180, 180, 10)
 
-proj = ccrs.LambertConformal(central_latitude=50., central_longitude=-160.)
+proj = ccrs.LambertConformal(central_latitude=50., central_longitude=-165.)
 #
 fig = plt.figure(figsize=(18.6, 10.5))
 ax = plt.axes(projection=proj)
@@ -206,26 +206,26 @@ for nepac_x, nepac_y in zip(nepac_xs, nepac_ys):
     traversed = []
     invalid = []
     floodfill(mslp, nepac_x, nepac_y, mslp[nepac_y,nepac_x], lows, fillx, filly, nepac_x, nepac_y, traversed, invalid)
+    
+    #determine max 10m wind speed
+    last_wind = 0
+    storm_wind = 0
+    maxwlo = 0.
+    maxwla = 0.
+    for wlo, wla, wx, wy in zip(wind_lons, wind_lats, mwx, mwy):
+        dist = calc_dist(wla, wlo, lats[nepac_y], lons[nepac_x]-360)
+        wind = wind10m[wy,wx]
+        if dist < 1000 and wind > last_wind: #find highest wind maximum within 1000 km of center
+            storm_wind = wind
+            maxwlo = wlo
+            maxwla = wla
+            last_wind = wind
+
     if (nepac_x, nepac_y) in invalid:
         print('this is not nameable cyclone')
         valid.append(['name', lats[nepac_y], lons[nepac_x], 0, mslp[nepac_y,nepac_x], 'EX', 0., 0.])
         plotopts = 'mo'
     else:
-        #check if the storm is associated with gales
-        #determine max 10m wind speed
-        last_wind = 0
-        storm_wind = 0
-        maxwlo = 0.
-        maxwla = 0.
-        for wlo, wla, wx, wy in zip(wind_lons, wind_lats, mwx, mwy):
-            dist = calc_dist(wla, wlo, lats[nepac_y], lons[nepac_x]-360)
-            wind = wind10m[wy,wx]
-            if dist < 1000 and wind > last_wind: #find highest wind maximum within 1000 km of center
-                storm_wind = wind
-                maxwlo = wlo
-                maxwla = wla
-                last_wind = wind
-
         #if the storm is associated with gales
         if storm_wind >= 34:
             print('this is nameable')
@@ -316,9 +316,9 @@ f3.close()
 f4.close()
 
 #SECOND PLOT --- plot mslp & 10m winds
-fig = plt.figure(figsize=(18.6, 10.5))
+fig = plt.figure(figsize=(19.2, 10.8))
 ax = fig.add_axes([0.0, 0.0, 0.915, 0.915], projection=proj)
-ax.set_extent([-210., -110., 73., 30.], crs=ccrs.PlateCarree())
+ax.set_extent([-220., -110., 68., 30.], crs=ccrs.PlateCarree())
 
 plt.rcParams['font.sans-serif'] = 'Segoe UI'
 
@@ -342,8 +342,18 @@ print("plotting sfc winds")
 wind_cf = ax.contourf(lons, lats, wind10m, levels=ulevs, colors=ucolors, zorder=0, transform=ccrs.PlateCarree())
 ax.barbs(lons[::WIND_SAMPLE_RATE], lats[::WIND_SAMPLE_RATE], u10m[::WIND_SAMPLE_RATE,::WIND_SAMPLE_RATE]*1.94384449, v10m[::WIND_SAMPLE_RATE,::WIND_SAMPLE_RATE]*1.94384449, transform=ccrs.PlateCarree()) #make sure to convert m/s to kt
 
-html = '<head>\n<link rel="stylesheet" href="seasonsum.css">\n</head>\n\n<img src="test2.png" />\n\n<p class="track-data-header">Active windstorms</p>\n\n<table>\n'
+html = '<head>\n<link rel="stylesheet" href="seasonsum.css">\n<title>North Pacific Windstorms</title>\n</head>\n\n<img src="mslp.png" />\n\n<p class="track-data-header">Active windstorms</p>\n\n<table>\n'
 html += '\t<tr class="header">\n\t\t<td><b>Windstorm</b></td>\n\t\t<td><b>Lat</b></td>\n\t\t<td><b>Lon</b></td>\n\t\t<td><b>Wind</b></td>\n\t\t<td><b>Pressure</b></td>\n\t</tr>\n'
+
+#read in storm numbers representing the beginning of the 'all' track file
+flsn = open('last_storm_numbers', 'r')
+k = flsn.read()
+s = k.strip().split(' ')
+
+nw_number = int(s[0])
+ne_number = int(s[1])
+
+flsn.close()
 
 #parse track data and plot active windstorm tracks
 fall = open('all', 'r')
@@ -368,20 +378,43 @@ for line in k:
     if sname not in all_storm_tracks:
         #initialize these only at the first point
         all_storm_tracks[sname] = {}
+        all_storm_tracks[sname]['times'] = []
         all_storm_tracks[sname]['lats'] = []
         all_storm_tracks[sname]['lons'] = []
+        all_storm_tracks[sname]['winds'] = []
+        all_storm_tracks[sname]['press'] = []
+        all_storm_tracks[sname]['types'] = []
         all_storm_tracks[sname]['formation_month'] = stime[4:6]
         all_storm_tracks[sname]['formation_date'] = stime[6:8]
+        all_storm_tracks[sname]['wsid'] = ''
         all_storm_tracks[sname]['max_wind'] = 0
         all_storm_tracks[sname]['min_pres'] = 9999
     
     #continuously update these with each new point
+    all_storm_tracks[sname]['times'].append(stime)
     all_storm_tracks[sname]['lats'].append(slat)
     all_storm_tracks[sname]['lons'].append(slon)
-    all_storm_tracks[sname]['dissipation_date'] = stime[6:8]
+    all_storm_tracks[sname]['winds'].append(swind)
+    all_storm_tracks[sname]['press'].append(spres)
+    all_storm_tracks[sname]['types'].append(stype)
     
-    #update these only if we find a new stronger intensity
+    #update these only if it's a windstorm
     if stype == 'WS':
+        #assign storm numbers to all systems
+        if all_storm_tracks[sname]['wsid'] == '': #unassigned
+            if slon <= 180.:
+                nw_number += 1
+                wsbasin = 'NW'
+                wsnumber = int(nw_number)
+            else:
+                ne_number += 1
+                wsbasin = 'NE'
+                wsnumber = int(ne_number)
+
+            all_storm_tracks[sname]['wsid'] = f'{wsbasin}{wsnumber:02}'
+        
+        all_storm_tracks[sname]['dissipation_date'] = stime[6:8]
+        #and we find a new stronger intensity
         if swind > all_storm_tracks[sname]['max_wind']:
             all_storm_tracks[sname]['max_wind'] = swind
         if spres < all_storm_tracks[sname]['min_pres']:
@@ -414,10 +447,10 @@ for storm in valid:
         if storm[0] in all_storm_tracks.keys():
             plt.plot(all_storm_tracks[storm[0]]['lons'], all_storm_tracks[storm[0]]['lats'], linestyle='--', linewidth=3, color='#aaaaaa', transform=ccrs.PlateCarree(), zorder=1)
 
-fig.text(0.025, 0.95, 'North Pacific Windstorms', fontsize=32, weight='bold')
-fig.text(0.025, 0.925, 'Mean sea level pressure & 10 m wind', fontsize=24)
-fig.text(0.975, 0.925, '%s-%s-%s %sz' % (YYYYMMDD[0:4], YYYYMMDD[4:6], YYYYMMDD[6:8], HH), fontsize=24, horizontalalignment='right')
-fig.text(0.975, 0.956, 'https://tropicalcyclonedata.net/npac', fontsize=20, horizontalalignment='right', color='#aaaaaa')
+fig.text(0.0, 0.897, 'North Pacific Windstorms', fontsize=32, weight='bold')
+fig.text(0.0, 0.871, 'Mean sea level pressure & 10 m wind', fontsize=24)
+fig.text(0.93, 0.871, '%s-%s-%s %sz' % (YYYYMMDD[0:4], YYYYMMDD[4:6], YYYYMMDD[6:8], HH), fontsize=24, horizontalalignment='right')
+fig.text(0.93, 0.902, 'https://tropicalcyclonedata.net/npac', fontsize=20, horizontalalignment='right', color='#aaaaaa')
 
 plt.colorbar(wind_cf, fraction=0.025, pad=0.01, ax=ax)
 print('saving figure 2...')
@@ -438,15 +471,26 @@ html += '</table>\n\n'
 month_name = timestamp.strftime('%B')
 month_mm = timestamp.strftime('%m')
 
-html += f'<p class="track-data-header">{month_name} summary</p>\n\n'
+html += f'<p class="track-data-header">{month_name} summary (<a href="./trackdata/nov26.html">map/data</a>)</p>\n\n'
 html += '<table>\n\t<tr class="header">\n\t\t<td><b>Windstorm</b></td>\n\t\t<td><b>Active dates</b></td>\n\t\t<td><b>Max wind</b></td>\n\t\t<td><b>Min pres.</b></td>\n\t</tr>\n'
 
+tcdnatcf = ''
+
 for storm in all_storm_tracks.keys():
+    #we only want storms that formed this month for the page/curmonth file
     if all_storm_tracks[storm]['formation_month'] == month_mm:
-        #we only want storms that formed this month
         stitle, sclass = determine_title(all_storm_tracks[storm]['max_wind'], 'WS')
 
         html += f'\t<tr class="{sclass}">\n\t\t<td>{stitle} {storm}</td>\n\t\t<td>{month_name} {int(all_storm_tracks[storm]["formation_date"])} &ndash; {int(all_storm_tracks[storm]["dissipation_date"])}</td>\n\t\t<td>{all_storm_tracks[storm]["max_wind"]} kts</td>\n\t\t<td>{all_storm_tracks[storm]["min_pres"]} hPa</td>\n\t</tr>\n'
+        
+        #write tcdnatcf format track file
+        tcdnatcf += f'{storm}\n'
+
+        wsbasin = all_storm_tracks[storm]['wsid'][0:2]
+        wsnumber = all_storm_tracks[storm]['wsid'][2:4]
+
+        for time, lat, lon, wind, pres, wstype in zip(all_storm_tracks[storm]['times'], all_storm_tracks[storm]['lats'], all_storm_tracks[storm]['lons'], all_storm_tracks[storm]['winds'], all_storm_tracks[storm]['press'], all_storm_tracks[storm]['types']):
+            tcdnatcf += f'{wsbasin},{wsnumber},{time},,,{fmt_lat(lat)},{fmt_lon(lon)},{wind},{pres},{wstype}\n'
 
 html += '</table>\n\n'
 
@@ -454,10 +498,13 @@ html += f'<hr>\n<p>Page generated {f_time} UTC</p>\n'
 
 #make html file
 fhtml = open('/home/ubuntu/scripts/py3/npacs/page.html', 'w')
-
 fhtml.write(html)
-
 fhtml.close()
+
+#make tcdnatcf format track file
+ftcdnatcf = open('/home/ubuntu/scripts/py3/npacs/curmonth', 'w')
+ftcdnatcf.write(tcdnatcf)
+ftcdnatcf.close()
 
 #upload
 facc = open('creds', 'r')
@@ -470,17 +517,17 @@ session = ftplib.FTP('ftp.paladinofstorms.net',ftpacc,ftppass)
 
 f = open("/home/ubuntu/scripts/py3/npacs/img/1000-500_thickness_mslp_250_wind_%s%s.png" % (YYYYMMDD, HH), 'rb')
 session.cwd('/npac/')
-session.storbinary('STOR test.png', f)
+session.storbinary('STOR debug.png', f)
 f.close()
 
 f = open("/home/ubuntu/scripts/py3/npacs/img/mslp_10m_wind_%s%s.png" % (YYYYMMDD, HH), 'rb')
 session.cwd('/npac')
-session.storbinary('STOR test2.png', f)
+session.storbinary('STOR mslp.png', f)
 f.close()
 
 f = open("/home/ubuntu/scripts/py3/npacs/page.html", 'rb')
 session.cwd('/npac')
-session.storbinary('STOR page.html', f)
+session.storbinary('STOR default.html', f)
 f.close()
 
 session.quit()

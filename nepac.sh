@@ -13,3 +13,4 @@ wget -O /home/ubuntu/scripts/py3/npacs/filter.grib2 "https://nomads.ncep.noaa.go
 source ~/anaconda3/etc/profile.d/conda.sh
 conda activate py3
 python /home/ubuntu/scripts/py3/npacs/nepac.py $date $hour
+python /home/ubuntu/scripts/py3/npacs/pagegen.py
