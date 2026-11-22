@@ -7,37 +7,51 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import cartopy.crs as ccrs
 import cartopy.io.shapereader as shpr
+from collections import deque
 from scipy.ndimage import minimum_filter, maximum_filter
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 
 print("now running nepac.py...\n")
 
-def floodfill(a, x, y, min_pres, lows, fillx, filly, origx, origy, traversed, invalid):
-    if (origx, origy) in invalid:
-        #print "closing all recursive instances, already found to be invalid"
-        return 0
-    if calc_dist(lons[x], lats[y], lons[origx], lats[origy]) > 700:
-        #is 2500 km too close?
-        print("too far from center, assume low not deep enough")
-        invalid.append((origx, origy))
-        return 0
-    if x != origx and y != origy:
-        if a[y][x] < min_pres:
-            print(f"this low is not 8 hPa deep! fell below min_pres at {lats[y]} {lons[x]} ({x}, {y})")
-            invalid.append((origx, origy))
-            return 0
-    if a[y][x] < min_pres+8 and (x, y) not in traversed:
-        traversed.append((x, y))
-        if x > 0:
-            floodfill(a,x-1,y, min_pres, lows, fillx, filly, origx, origy, traversed, invalid)
-        if x < len(a[y]) - 1:
-            floodfill(a,x+1,y, min_pres, lows, fillx, filly, origx, origy, traversed, invalid)
-        if y > 0:
-            floodfill(a,x,y-1, min_pres, lows, fillx, filly, origx, origy, traversed, invalid)
-        if y < len(a) - 1:
-            floodfill(a,x,y+1, min_pres, lows, fillx, filly, origx, origy, traversed, invalid)
+def floodfill(a, origx, origy, min_pres, lons, lats, max_dist=1500, depth_thresh=8.):
+    """
+    Iterative BFS to validate if a low-pressure center is at least `depth_thresh` hPa deep
+    within `max_dist` km without encountering a lower pressure.
+    """
+    rows = len(a)
+    cols = len(a[0])
+    
+    queue = deque([(origx, origy)])
+    traversed = {(origx, origy)}  # Set for O(1) lookup speed
+    fillx, filly = [], []
+    
+    orig_lon = lons[origx]
+    orig_lat = lats[origy]
+    
+    while queue:
+        x, y = queue.popleft()
+        
+        # 1. Check distance boundary
+        if calc_dist(lons[x], lats[y], orig_lon, orig_lat) > max_dist:
+            print(f"too far from center, assume low not deep enough")
+            return False, [], []
+            
+        # 2. Check if we spilled into a deeper low (removed the diagonal-only bug)
+        if (x != origx or y != origy) and a[y][x] < min_pres:
+            print(f"this low is not {depth_thresh} hPa deep! fell below min_pres at {lats[y]} {lons[x]} ({x}, {y})")
+            return False, [], []
+            
         fillx.append(x)
         filly.append(y)
+        
+        # 3. Expand to valid 4-connected neighbors
+        for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+            if 0 <= nx < cols and 0 <= ny < rows:
+                if (nx, ny) not in traversed and a[ny][nx] < min_pres + depth_thresh:
+                    traversed.add((nx, ny))
+                    queue.append((nx, ny))
+                    
+    return True, fillx, filly
 
 def calc_dist(lat1,lon1,lat2,lon2):
     R = 6371.0088
@@ -200,12 +214,8 @@ plt.plot(lons[mxx], lats[mxy], 'ro', transform=ccrs.PlateCarree())
 #determine valid nepac cyclones
 valid = []
 for nepac_x, nepac_y in zip(nepac_xs, nepac_ys):
-    print('checking depth of %s %s' % (nepac_x, nepac_y))
-    fillx = []
-    filly = []
-    traversed = []
-    invalid = []
-    floodfill(mslp, nepac_x, nepac_y, mslp[nepac_y,nepac_x], lows, fillx, filly, nepac_x, nepac_y, traversed, invalid)
+    print('checking depth of %s %s (%s, %s)' % (lats[nepac_y], lons[nepac_x], nepac_x, nepac_y))
+    deep_enough, fillx, filly = floodfill(mslp, nepac_x, nepac_y, mslp[nepac_y,nepac_x], lons, lats)
     
     #determine max 10m wind speed
     last_wind = 0
@@ -221,9 +231,9 @@ for nepac_x, nepac_y in zip(nepac_xs, nepac_ys):
             maxwla = wla
             last_wind = wind
 
-    if (nepac_x, nepac_y) in invalid:
+    if not deep_enough:
         print('this is not nameable cyclone')
-        valid.append(['name', lats[nepac_y], lons[nepac_x], 0, mslp[nepac_y,nepac_x], 'EX', 0., 0.])
+        valid.append(['name', lats[nepac_y], lons[nepac_x], storm_wind, mslp[nepac_y,nepac_x], 'EX', maxwla, maxwlo])
         plotopts = 'mo'
     else:
         #if the storm is associated with gales
