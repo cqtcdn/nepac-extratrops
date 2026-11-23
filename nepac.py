@@ -482,7 +482,9 @@ month_name = timestamp.strftime('%B')
 month_mm = timestamp.strftime('%m')
 
 html += f'<p class="track-data-header">{month_name} summary (<a href="./trackdata/nov26.html">map/data</a>)</p>\n\n'
-html += '<table>\n\t<tr class="header">\n\t\t<td><b>Windstorm</b></td>\n\t\t<td><b>Active dates</b></td>\n\t\t<td><b>Max wind</b></td>\n\t\t<td><b>Min pres.</b></td>\n\t</tr>\n'
+
+nw_html = '<table>\n\t<tr class="header">\n\t\t<td><b>Windstorm</b></td>\n\t\t<td><b>Active dates</b></td>\n\t\t<td><b>Max wind</b></td>\n\t\t<td><b>Min pres.</b></td>\n\t</tr>\n'
+ne_html = '<table>\n\t<tr class="header">\n\t\t<td><b>Windstorm</b></td>\n\t\t<td><b>Active dates</b></td>\n\t\t<td><b>Max wind</b></td>\n\t\t<td><b>Min pres.</b></td>\n\t</tr>\n'
 
 tcdnatcf = ''
 
@@ -491,7 +493,7 @@ for storm in all_storm_tracks.keys():
     if all_storm_tracks[storm]['formation_month'] == month_mm:
         stitle, sclass = determine_title(all_storm_tracks[storm]['max_wind'], 'WS')
 
-        html += f'\t<tr class="{sclass}">\n\t\t<td>{stitle} {storm}</td>\n\t\t<td>{month_name} {int(all_storm_tracks[storm]["formation_date"])} &ndash; {int(all_storm_tracks[storm]["dissipation_date"])}</td>\n\t\t<td>{all_storm_tracks[storm]["max_wind"]} kts</td>\n\t\t<td>{all_storm_tracks[storm]["min_pres"]} hPa</td>\n\t</tr>\n'
+        summary_row_html = f'\t<tr class="{sclass}">\n\t\t<td>{stitle} {storm}</td>\n\t\t<td>{month_name} {int(all_storm_tracks[storm]["formation_date"])} &ndash; {int(all_storm_tracks[storm]["dissipation_date"])}</td>\n\t\t<td>{all_storm_tracks[storm]["max_wind"]} kts</td>\n\t\t<td>{all_storm_tracks[storm]["min_pres"]} hPa</td>\n\t</tr>\n'
         
         #write tcdnatcf format track file
         tcdnatcf += f'{storm}\n'
@@ -499,10 +501,22 @@ for storm in all_storm_tracks.keys():
         wsbasin = all_storm_tracks[storm]['wsid'][0:2]
         wsnumber = all_storm_tracks[storm]['wsid'][2:4]
 
+        #add to either nw to ne summary table
+        if wsbasin == 'NW':
+            nw_html += summary_row_html
+        elif wsbasin == 'NE':
+            ne_html += summary_row_html
+
         for time, lat, lon, wind, pres, wstype in zip(all_storm_tracks[storm]['times'], all_storm_tracks[storm]['lats'], all_storm_tracks[storm]['lons'], all_storm_tracks[storm]['winds'], all_storm_tracks[storm]['press'], all_storm_tracks[storm]['types']):
             tcdnatcf += f'{wsbasin},{wsnumber},{time},,,{fmt_lat(lat)},{fmt_lon(lon)},{wind},{pres},{wstype}\n'
 
-html += '</table>\n\n'
+nw_html += '</table>\n\n'
+ne_html += '</table>\n\n'
+
+html += '<div class="nw-ne-table-container">'
+html += nw_html
+html += ne_html
+html += '</div>\n\n'
 
 html += f'<hr>\n<p>Page generated {f_time} UTC</p>\n'
 
